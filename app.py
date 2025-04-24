@@ -2,6 +2,12 @@ import streamlit as st
 import pandas as pd
 import altair as alt
 from datetime import datetime
+import streamlit_authenticator as stauth
+from prophet import Prophet
+from prophet.plot import plot_plotly
+import plotly.graph_objs as go
+import yaml
+from yaml.loader import SafeLoader
 
 # ------------------------
 # 1. PAGE CONFIG
@@ -14,112 +20,192 @@ st.set_page_config(
 st.title("📊 D2C Brand Performance Dashboard")
 st.markdown("Built with ❤️ by sujith  |  WTLB & WALB")
 
-
-# ------------------------
-# 2. LOAD DATA
-# ------------------------
-@st.cache_data
-def load_data():
-    df = pd.read_csv("d2c_data.csv")
-    df["Date"] = pd.to_datetime(df["Date"])
-    return df
-
-df = load_data()
+# ------------------------Auth
 
 
-# ------------------------
-# 3. SIDEBAR FILTERS
-# ------------------------
-with st.sidebar:
-    st.header("🔍 Filters")
-    
-    start_date = st.date_input("Start Date", df["Date"].min().date())
-    end_date = st.date_input("End Date", df["Date"].max().date())
 
-    products = st.multiselect("Select Product(s)", options=df["Top Product"].unique(), default=df["Top Product"].unique())
+# Sample user credentials
+usernames = ['Founder']
+names = ['D2C Founder']
+passwords = ['powerpass123']
 
-# Apply filters
-filtered_df = df[
-    (df["Date"] >= pd.to_datetime(start_date)) &
-    (df["Date"] <= pd.to_datetime(end_date)) &
-    (df["Top Product"].isin(products))
-]
+# Hash passwords
+hashed_passwords = stauth.Hasher(passwords).generate()
 
+# YAML-style config (inline)
+config = {
+    'credentials': {
+        'usernames': {
+            usernames[0]: {
+                'name': names[0],
+                'password': hashed_passwords[0]
+            }
+        }
+    },
+    'cookie': {
+        'name': 'd2c_dashboard_cookie',
+        'key': 'd2c_secret_key',
+        'expiry_days': 7
+    },
+    'preauthorized': {
+        'emails': []
+    }
+}
 
-# ------------------------
-# 4. KPI METRICS
-# ------------------------
-total_revenue = filtered_df["Revenue"].sum()
-total_orders = filtered_df["Orders"].sum()
-avg_cac = round(filtered_df["CAC"].mean(), 2)
-
-st.markdown("## 📈 Key Metrics")
-col1, col2, col3 = st.columns(3)
-col1.metric("💰 Total Revenue", f"₹ {total_revenue:,.0f}")
-col2.metric("📦 Total Orders", total_orders)
-col3.metric("🎯 Average CAC", f"₹ {avg_cac:,.2f}")
-
-st.divider()
-
-# ------------------------
-# 5. VISUALIZATIONS
-# ------------------------
-
-# Revenue Trend Line Chart
-st.markdown("### 📊 Daily Revenue Trend")
-revenue_chart = alt.Chart(filtered_df).mark_line(point=True).encode(
-    x='Date:T',
-    y='Revenue:Q',
-    tooltip=['Date:T', 'Revenue']
-).properties(height=300)
-st.altair_chart(revenue_chart, use_container_width=True)
-
-# CAC Over Time Area Chart
-st.markdown("### 💸 CAC Over Time")
-cac_chart = alt.Chart(filtered_df).mark_area(opacity=0.6).encode(
-    x='Date:T',
-    y='CAC:Q',
-    tooltip=['Date:T', 'CAC']
-).properties(height=300)
-st.altair_chart(cac_chart, use_container_width=True)
-
-# Top 5 Products by Revenue Bar Chart
-st.markdown("### 🏆 Top Products by Revenue")
-top_products = (
-    filtered_df.groupby("Top Product")["Revenue"]
-    .sum()
-    .sort_values(ascending=False)
-    .head(5)
-    .reset_index()
-)
-bar_chart = alt.Chart(top_products).mark_bar().encode(
-    x='Top Product:N',
-    y='Revenue:Q',
-    tooltip=['Top Product', 'Revenue']
-)
-st.altair_chart(bar_chart, use_container_width=True)
-
-# Pie Chart: Product Share by Orders
-st.markdown("### 🥧 Product Share by Orders")
-product_share = (
-    filtered_df.groupby("Top Product")["Orders"]
-    .sum()
-    .reset_index()
+# Create Authenticator
+authenticator = stauth.Authenticate(
+    config['credentials'],
+    config['cookie']['name'],
+    config['cookie']['key'],
+    config['cookie']['expiry_days']
 )
 
-st.dataframe(product_share, use_container_width=True)
+# Login
+name, authentication_status, username = authenticator.login('Login', 'main')
+
+if authentication_status:
+    authenticator.logout('Logout', 'sidebar')
+    st.sidebar.success(f'Welcome {name} 👋')
+    # ✨ Your full dashboard code starts below this point
+    # ------------------------
+    # 2. LOAD DATA
+    # ------------------------
+    @st.cache_data
+    def load_data():
+        df = pd.read_csv("d2c_data.csv")
+        df["Date"] = pd.to_datetime(df["Date"])
+        return df
+
+    df = load_data()
+
+
+    # ------------------------
+    # 3. SIDEBAR FILTERS
+    # ------------------------
+    with st.sidebar:
+        st.header("🔍 Filters")
+        
+        start_date = st.date_input("Start Date", df["Date"].min().date())
+        end_date = st.date_input("End Date", df["Date"].max().date())
+
+        products = st.multiselect("Select Product(s)", options=df["Top Product"].unique(), default=df["Top Product"].unique())
+
+    # Apply filters
+    filtered_df = df[
+        (df["Date"] >= pd.to_datetime(start_date)) &
+        (df["Date"] <= pd.to_datetime(end_date)) &
+        (df["Top Product"].isin(products))
+    ]
+
+
+    # ------------------------
+    # 4. KPI METRICS
+    # ------------------------
+    total_revenue = filtered_df["Revenue"].sum()
+    total_orders = filtered_df["Orders"].sum()
+    avg_cac = round(filtered_df["CAC"].mean(), 2)
+
+    st.markdown("## 📈 Key Metrics")
+    col1, col2, col3 = st.columns(3)
+    col1.metric("💰 Total Revenue", f"₹ {total_revenue:,.0f}")
+    col2.metric("📦 Total Orders", total_orders)
+    col3.metric("🎯 Average CAC", f"₹ {avg_cac:,.2f}")
+
+    st.divider()
+
+    # ------------------------
+    # 5. VISUALIZATIONS
+    # ------------------------
+
+    # Revenue Trend Line Chart
+    st.markdown("### 📊 Daily Revenue Trend")
+    revenue_chart = alt.Chart(filtered_df).mark_line(point=True).encode(
+        x='Date:T',
+        y='Revenue:Q',
+        tooltip=['Date:T', 'Revenue']
+    ).properties(height=300)
+    st.altair_chart(revenue_chart, use_container_width=True)
+
+    # CAC Over Time Area Chart
+    st.markdown("### 💸 CAC Over Time")
+    cac_chart = alt.Chart(filtered_df).mark_area(opacity=0.6).encode(
+        x='Date:T',
+        y='CAC:Q',
+        tooltip=['Date:T', 'CAC']
+    ).properties(height=300)
+    st.altair_chart(cac_chart, use_container_width=True)
+
+    # Top 5 Products by Revenue Bar Chart
+    st.markdown("### 🏆 Top Products by Revenue")
+    top_products = (
+        filtered_df.groupby("Top Product")["Revenue"]
+        .sum()
+        .sort_values(ascending=False)
+        .head(5)
+        .reset_index()
+    )
+    bar_chart = alt.Chart(top_products).mark_bar().encode(
+        x='Top Product:N',
+        y='Revenue:Q',
+        tooltip=['Top Product', 'Revenue']
+    )
+    st.altair_chart(bar_chart, use_container_width=True)
+
+    # Pie Chart: Product Share by Orders
+    st.markdown("### 🥧 Product Share by Orders")
+    product_share = (
+        filtered_df.groupby("Top Product")["Orders"]
+        .sum()
+        .reset_index()
+    )
+
+    st.dataframe(product_share, use_container_width=True)
+
+    # ------------------------
+    # 6. RAW DATA
+    # ------------------------
+    with st.expander("📄 View Raw Data"):
+        st.dataframe(filtered_df.reset_index(drop=True), use_container_width=True)
+
+    # ------------------------
+    # 7. DOWNLOAD OPTION
+    # ------------------------
+    csv = filtered_df.to_csv(index=False).encode("utf-8")
+    st.download_button("⬇️ Download Filtered Data", data=csv, file_name="filtered_d2c_data.csv", mime="text/csv")
+
+    ################################################################################################
+    st.header("📈 Revenue Forecasting")
+
+    # Prepare data for Prophet
+    df_forecast = df[['Date', 'Revenue']].rename(columns={'Date': 'ds', 'Revenue': 'y'})
+
+    # Initialize and fit the model
+    model = Prophet(daily_seasonality=True)
+    model.fit(df_forecast)
+
+    # Make future dataframe
+    future = model.make_future_dataframe(periods=15)
+
+    # Forecast
+    forecast = model.predict(future)
+
+    # Plot forecast using Plotly
+    st.subheader("🔮 Forecast for Next 15 Days")
+    fig_forecast = plot_plotly(model, forecast)
+    st.plotly_chart(fig_forecast)
+
+    # Show forecast data
+    st.subheader("📅 Forecast Data Preview")
+    st.dataframe(forecast[['ds', 'yhat', 'yhat_lower', 'yhat_upper']].tail(15))
+    ################################################################################################
+
+elif authentication_status is False:
+    st.error('Username or password is incorrect')
+elif authentication_status is None:
+    st.warning('Please enter your username and password')
+
 
 # ------------------------
-# 6. RAW DATA
-# ------------------------
-with st.expander("📄 View Raw Data"):
-    st.dataframe(filtered_df.reset_index(drop=True), use_container_width=True)
-
-# ------------------------
-# 7. DOWNLOAD OPTION
-# ------------------------
-csv = filtered_df.to_csv(index=False).encode("utf-8")
-st.download_button("⬇️ Download Filtered Data", data=csv, file_name="filtered_d2c_data.csv", mime="text/csv")
 
 
 
